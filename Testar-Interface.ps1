@@ -5,7 +5,7 @@ if ([Threading.Thread]::CurrentThread.ApartmentState -ne 'STA') { throw 'Use pow
 Add-Type -AssemblyName PresentationFramework
 $arquivo = (Get-Item -LiteralPath $Exe).FullName
 $app = [Reflection.Assembly]::Load([IO.File]::ReadAllBytes($arquivo))
-$esperados = 'BouncyCastle.Cryptography.dll','BouncyCastle.LICENSE.md','interface'
+$esperados = @('interface')
 if (Compare-Object ($esperados | Sort-Object) ($app.GetManifestResourceNames() | Sort-Object)) {
     throw 'Os recursos embutidos divergem da lista do build público.'
 }
@@ -14,6 +14,12 @@ $tipo = $app.GetType('Launcher',$true)
 $launcher = $tipo.GetConstructor($interno,$null,[Type[]]@(),$null).Invoke(@())
 $janela = $tipo.GetProperty('Janela',$interno).GetValue($launcher)
 try {
+    if (!$janela.FindName('AbaNoticias') -or !$janela.FindName('MuralMix').Items.Count) {
+        throw 'O mural de notícias da comunidade não carregou.'
+    }
+    if (!$janela.FindName('OpcaoEntrada1') -or !$janela.FindName('OpcaoEntrada3') -or $janela.FindName('OpcaoEntrada2')) {
+        throw 'A aba Servidor deve oferecer as duas entradas diretas.'
+    }
     $janela.FindName('AbaComandos').IsChecked = $true
     $janela.FindName('Busca').Text = 'ready'
     $lista = $janela.FindName('ListaComandos')

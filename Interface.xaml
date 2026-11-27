@@ -240,11 +240,10 @@
         </Border>
         <DockPanel Margin="0,7,0,5">
           <Button x:Name="UsarMenorPing" DockPanel.Dock="Right" Content="Usar menor ping" Style="{StaticResource button}" FontSize="12" Padding="8,3" Background="#34283F" ToolTip="Retomar a seleção automática entre as entradas disponíveis"/>
-          <Button x:Name="VincularEntrada" DockPanel.Dock="Right" Content="Liberar Entrada 2" Style="{StaticResource button}" FontSize="12" Margin="0,0,6,0" Padding="8,3" Background="#34283F" Visibility="Collapsed"/>
           <TextBlock Text="Entradas do mix" Foreground="#D8D2E0" FontSize="13" FontWeight="SemiBold" VerticalAlignment="Center"/>
         </DockPanel>
         <Grid>
-          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="7"/><ColumnDefinition Width="*"/><ColumnDefinition Width="7"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+          <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="7"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
           <RadioButton x:Name="OpcaoEntrada1" GroupName="Entradas" TabIndex="0" Style="{StaticResource opcaoEntrada}" AutomationProperties.Name="Entrada 1">
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -252,14 +251,7 @@
               <TextBlock Grid.Column="1" x:Name="DestaqueEntrada1" Text="Menor ping" Style="{StaticResource destaqueEntrada}"/>
             </Grid>
           </RadioButton>
-          <RadioButton x:Name="OpcaoEntrada2" Grid.Column="2" GroupName="Entradas" TabIndex="0" Style="{StaticResource opcaoEntrada}" AutomationProperties.Name="Entrada 2">
-            <Grid>
-              <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-              <StackPanel><TextBlock Text="Entrada 2" Style="{StaticResource legenda}"/><TextBlock x:Name="PingEntrada2" Text="Medindo…" Style="{StaticResource pingEntrada}"/></StackPanel>
-              <TextBlock Grid.Column="1" x:Name="DestaqueEntrada2" Text="Menor ping" Style="{StaticResource destaqueEntrada}"/>
-            </Grid>
-          </RadioButton>
-          <RadioButton x:Name="OpcaoEntrada3" Grid.Column="4" GroupName="Entradas" TabIndex="0" Style="{StaticResource opcaoEntrada}" AutomationProperties.Name="Entrada 3">
+          <RadioButton x:Name="OpcaoEntrada3" Grid.Column="2" GroupName="Entradas" TabIndex="0" Style="{StaticResource opcaoEntrada}" AutomationProperties.Name="Entrada 3">
             <Grid>
               <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
               <StackPanel><TextBlock Text="Entrada 3" Style="{StaticResource legenda}"/><TextBlock x:Name="PingEntrada3" Text="Medindo…" Style="{StaticResource pingEntrada}"/></StackPanel>

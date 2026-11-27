@@ -27,7 +27,6 @@ internal sealed partial class Launcher
     private string legendaEntrada = "Escolha uma entrada na aba Servidor.";
     private SondagemEntradas sondagem;
     private SondagemEntradas medicaoParaConectar;
-    private PonteJogo ponte;
     private readonly string[] recursos = typeof(Launcher).Assembly.GetManifestResourceNames();
     private readonly CancellationTokenSource fecharAtualizador = new CancellationTokenSource();
     private string imagemAtual = Cenarios.Padrao;
@@ -54,7 +53,6 @@ internal sealed partial class Launcher
     {
         MontarJanela();
         Controle<Button>("Entrar").Click += delegate { Entrar(); };
-        Controle<Button>("VincularEntrada").Click += delegate { VincularEntrada(); };
         Controle<Button>("Copiar").Click += delegate { CopiarEndereco(); };
         foreach (var entrada in EntradaMix.Todas)
         {
@@ -96,18 +94,8 @@ internal sealed partial class Launcher
                 medicaoParaConectar.Dispose();
                 medicaoParaConectar = null;
             }
-            if (Application.Current != null && ponte != null && !ponte.Termino.IsCompleted)
-                Application.Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
         };
-        Janela.Closed += async delegate
-        {
-            aviso.Stop();
-            if (Application.Current != null && Application.Current.ShutdownMode == ShutdownMode.OnExplicitShutdown)
-            {
-                if (ponte != null) await ponte.Termino;
-                Application.Current.Shutdown();
-            }
-        };
+        Janela.Closed += delegate { aviso.Stop(); };
     }
 
     private void ConfigurarGuia()
@@ -294,57 +282,27 @@ internal sealed partial class Launcher
         else if (selecionada.Medindo) legendaEntrada = "Medindo a " + entradaSelecionada.Nome + "…";
         else if (!selecionada.PodeConectar) legendaEntrada = entradaSelecionada.Nome + " indisponível. Atualize ou escolha outra.";
         else if (selecionada.Estado == null) legendaEntrada = entradaSelecionada.Nome + " selecionada · sem resposta ao teste";
-        else legendaEntrada = entradaSelecionada.Nome + (escolhaManual ? " selecionada" : " · seleção automática") +
-                (entradaSelecionada.UsaPonte ? " · " + selecionada.Transporte : "");
+        else legendaEntrada = entradaSelecionada.Nome + (escolhaManual ? " selecionada" : " · seleção automática");
         if (!aviso.IsEnabled) Controle<TextBlock>("Mensagem").Text = legendaEntrada;
         var endereco = Controle<TextBlock>("Endereco");
-        endereco.Text = temEndereco ? (selecionada != null && selecionada.UsaUdp ? "Conexão UDP direta" : entradaSelecionada.Endereco) : "";
+        endereco.Text = temEndereco ? entradaSelecionada.Endereco : "";
         endereco.Visibility = temEndereco ? Visibility.Visible : Visibility.Collapsed;
-        Controle<Button>("Copiar").Visibility = temEndereco && !entradaSelecionada.UsaPonte ? Visibility.Visible : Visibility.Collapsed;
+        Controle<Button>("Copiar").Visibility = temEndereco ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void MostrarMedicao(MedicaoEntrada medicao, bool menorPing)
     {
         int numero = medicao.Entrada.Numero;
-        bool precisaVinculo = medicao.Entrada.UsaPonte && AutorizacaoRota.PrecisaVinculo;
-        if (medicao.Entrada.UsaPonte)
-            Controle<Button>("VincularEntrada").Visibility = precisaVinculo ? Visibility.Visible : Visibility.Collapsed;
         string ping = medicao.Medindo ? "Medindo…" : medicao.Estado != null ? medicao.PingMs + " ms" :
-            precisaVinculo ? "Aguardando liberação" : medicao.PodeConectar ? "Sem resposta" : "Indisponível";
+            medicao.PodeConectar ? "Sem resposta" : "Indisponível";
         Controle<TextBlock>("PingEntrada" + numero).Text = ping;
         var destaque = Controle<TextBlock>("DestaqueEntrada" + numero);
         destaque.Text = menorPing ? "Menor ping" : "";
         destaque.Visibility = menorPing ? Visibility.Visible : Visibility.Collapsed;
         var opcao = Controle<RadioButton>("OpcaoEntrada" + numero);
         string resumo = medicao.Entrada.Nome + " · " + ping;
-        if (medicao.Entrada.UsaPonte && medicao.Estado != null) resumo += " · " + medicao.Transporte;
         AutomationProperties.SetName(opcao, resumo + (menorPing ? " · Menor ping" : ""));
         opcao.ToolTip = medicao.Medindo ? resumo : resumo + " · " + medicao.Amostras + " de 3 respostas";
-    }
-
-    private async void VincularEntrada()
-    {
-        var botao = Controle<Button>("VincularEntrada");
-        botao.IsEnabled = false;
-        try
-        {
-            string texto = JanelaConvite.AvisoVinculo + "\n\nDeseja vincular este PC e liberar a Entrada 2?";
-            if (MessageBox.Show(Janela, texto, "Liberar Entrada 2", MessageBoxButton.YesNo,
-                    MessageBoxImage.Question, MessageBoxResult.No) != MessageBoxResult.Yes) return;
-            var token = fecharCentral.Token;
-            await Task.Run(() => AutorizacaoRota.VincularComConsentimento(token), token);
-            if (token.IsCancellationRequested) return;
-            botao.Visibility = Visibility.Collapsed;
-            SondagemEntradas.RetomarEntrada2();
-            Informar("Entrada 2 liberada para este PC.");
-            Atualizar();
-        }
-        catch (Exception erro)
-        {
-            if (!CanalJogo.ErroDeRede(erro)) throw;
-            if (!fecharCentral.IsCancellationRequested) Informar("Liberação pendente. Verifique a conexão e tente novamente.");
-        }
-        finally { botao.IsEnabled = true; }
     }
 
     private void MostrarEstado(ComparacaoEntradas rotas)
@@ -352,11 +310,10 @@ internal sealed partial class Launcher
         ultimasMedicoes = rotas;
         var menorPing = rotas.MenorPing;
         MostrarMedicao(rotas.Direta, rotas.Direta == menorPing);
-        MostrarMedicao(rotas.Ponte, rotas.Ponte == menorPing);
         MostrarMedicao(rotas.Terceira, rotas.Terceira == menorPing);
         AtualizarEscolha();
-        var info = rotas.Direta.Estado ?? rotas.Ponte.Estado ?? rotas.Terceira.Estado;
-        if (info == null && (rotas.Direta.Medindo || rotas.Ponte.Medindo || rotas.Terceira.Medindo)) return;
+        var info = rotas.Direta.Estado ?? rotas.Terceira.Estado;
+        if (info == null && (rotas.Direta.Medindo || rotas.Terceira.Medindo)) return;
         bool online = info != null;
         string cor = online ? "#8BE3AE" : "#E8BC77";
         var tinta = (Brush)new BrushConverter().ConvertFromString(cor);
@@ -393,20 +350,19 @@ internal sealed partial class Launcher
         return Cenarios.Nome(original);
     }
 
-    private async Task<string> SenhaParaEntrarAsync(EntradaMix entrada, CancellationToken token)
+    private async Task<string> SenhaParaEntrarAsync(CancellationToken token)
     {
         var senha = await Task.Run(() => AutorizacaoRota.ObterSenhaDoJogo(false, token), token);
         token.ThrowIfCancellationRequested();
         if (senha != null) return senha;
 
-        var dialogo = new JanelaConvite(Janela, !entrada.UsaPonte);
+        var dialogo = new JanelaConvite(Janela);
         if (dialogo.ShowDialog() != true) return null;
         // Reconfira a licença após o diálogo, inclusive se o jogador digitou a senha.
         bool consentiu = dialogo.Vincular;
         senha = await Task.Run(() => AutorizacaoRota.ObterSenhaDoJogo(consentiu, token), token);
         token.ThrowIfCancellationRequested();
         if (senha == null) return dialogo.SenhaDigitada;
-        SondagemEntradas.RetomarEntrada2();
         return senha;
     }
 
@@ -420,7 +376,6 @@ internal sealed partial class Launcher
         AtualizarEscolha();
         fecharAtualizador.Cancel();
         Controle<TextBlock>("TextoEntrar").Text = "Verificando entrada…";
-        PonteJogo novaPonte = null;
         try
         {
             var rotas = await VerificarParaConectar(medicao, exibida);
@@ -431,54 +386,26 @@ internal sealed partial class Launcher
                 Informar(escolha.Nome + " indisponível. Atualize ou escolha outra.");
                 return;
             }
-            if (rota.UsaUdp != exibida.UsaUdp)
-            {
-                MostrarEstado(rotas);
-                Informar("A Entrada 2 mudou para " + rota.Transporte + ". Confira o ping e clique em Entrar no mix novamente.");
-                return;
-            }
             var destino = rota.Destino;
             Controle<TextBlock>("TextoEntrar").Text = "Solicitando convite…";
-            string senha = await SenhaParaEntrarAsync(escolha, fecharCentral.Token);
+            string senha = await SenhaParaEntrarAsync(fecharCentral.Token);
             if (senha == null || !Janela.IsVisible || fecharCentral.IsCancellationRequested) return;
-            if (escolha.UsaPonte)
-            {
-                try
-                {
-                    if (ponte == null || ponte.Termino.IsCompleted || ponte.UsaUdp != rota.UsaUdp)
-                    {
-                        novaPonte = await PonteJogo.AbrirAsync(rota.Estado.SteamId, rota.UsaUdp);
-                        ponte = novaPonte;
-                    }
-                    ponte.AguardarJogo();
-                    destino = ponte.Endereco;
-                }
-                catch (Exception erro)
-                {
-                    if (!CanalWebSocket.ErroDeRede(erro)) throw;
-                    Informar("A Entrada 2 não conectou. Tente de novo ou escolha outra.");
-                    return;
-                }
-            }
             if (!Janela.IsVisible) return;
             Controle<TextBlock>("TextoEntrar").Text = "Abrindo Steam…";
             await Task.Run(() => Process.Start(Convite.PrepararConexao(destino, senha)));
-            novaPonte = null; // A conexão do CS2 continua mesmo se a janela fechar.
             if (!Janela.IsVisible) return;
-            Informar(rota.Entrada.UsaPonte ? rota.Entrada.Nome + " ativa. Pode fechar a janela." :
-                (rota.Estado == null ? "Sem resposta ao teste. Tentando pela " + rota.Entrada.Nome + "." : "Conectando pela " + rota.Entrada.Nome + "."));
+            Informar(rota.Estado == null ? "Sem resposta ao teste. Tentando pela " + rota.Entrada.Nome + "." : "Conectando pela " + rota.Entrada.Nome + ".");
             await Task.Delay(1500);
         }
         catch (Win32Exception) { Informar("Confira se a Steam está instalada e tente novamente."); }
         catch (UnauthorizedAccessException) { Informar("Acesso ao convite recusado. Confira a licença do PC com o administrador."); }
         catch (Exception erro)
         {
-            if (!CanalJogo.ErroDeRede(erro)) throw;
+            if (!EntradaMix.ErroDeRede(erro)) throw;
             if (!fecharCentral.IsCancellationRequested) Informar("A central não confirmou o convite. Tente novamente em instantes.");
         }
         finally
         {
-            if (novaPonte != null) novaPonte.Parar();
             Controle<TextBlock>("TextoEntrar").Text = "Entrar no mix";
             conectando = false;
             AtualizarEscolha();
@@ -487,7 +414,7 @@ internal sealed partial class Launcher
 
     private void CopiarEndereco()
     {
-        if (entradaSelecionada != null && !entradaSelecionada.UsaPonte)
+        if (entradaSelecionada != null)
             Copiar(entradaSelecionada.Endereco, "Endereço copiado.");
     }
 

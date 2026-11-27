@@ -1,6 +1,5 @@
 {
   "DominioPrincipal": "jogo.example.invalid",
-  "DominioPonte": "ponte.example.invalid",
   "DominioTerceiro": "alternativa.example.invalid",
   "EnderecoLocalCadastro": "",
   "PortaCadastro": "443",

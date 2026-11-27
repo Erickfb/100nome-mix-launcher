@@ -15,11 +15,10 @@ internal sealed class EstadoServidor
     internal int Capacidade { get; private set; }
     internal int PingMs { get; private set; }
     internal ulong SteamId { get; private set; }
-    internal int IndicePorta { get; private set; }
     internal string Modo { get; private set; }
     internal EstatisticasMix Estatisticas { get; private set; }
 
-    internal EstadoServidor(string mapa, int jogadores, int bots, int capacidade, int pingMs, string modo = null, EstatisticasMix estatisticas = null, ulong steamId = 0, int indicePorta = -1)
+    internal EstadoServidor(string mapa, int jogadores, int bots, int capacidade, int pingMs, string modo = null, EstatisticasMix estatisticas = null, ulong steamId = 0)
     {
         Mapa = mapa;
         Jogadores = jogadores;
@@ -29,7 +28,6 @@ internal sealed class EstadoServidor
         Modo = modo;
         Estatisticas = estatisticas;
         SteamId = steamId;
-        IndicePorta = indicePorta;
     }
 }
 
@@ -145,7 +143,7 @@ internal static class ConsultaServidor
         Buffer.BlockCopy(mensagem, 0, pedido, 4, mensagem.Length);
         int tamanhoPedido = 4 + mensagem.Length;
 
-        // Cronometra uma viagem de ida e volta ao CS2, inclusive na rota via ponte.
+        // Cronometra uma viagem de ida e volta ao CS2.
         // O desafio inicial, quando exigido, não duplica a latência exibida.
         byte[] resposta = new byte[4096];
         while (true)
@@ -189,16 +187,11 @@ internal static class ConsultaServidor
 
         string modo = null;
         ulong steamId = 0;
-        int indicePorta = -1;
         EstatisticasMix estatisticas = null;
         if (posicao < tamanho)
         {
             int campos = dados[posicao++];
-            if ((campos & 0x80) != 0)
-            {
-                indicePorta = posicao;
-                Avancar(2, tamanho, ref posicao);
-            }
+            if ((campos & 0x80) != 0) Avancar(2, tamanho, ref posicao); // Porta do jogo.
             if ((campos & 0x10) != 0)
             {
                 Avancar(8, tamanho, ref posicao);
@@ -217,7 +210,7 @@ internal static class ConsultaServidor
             }
             if ((campos & 0x01) != 0) Avancar(8, tamanho, ref posicao); // GameID.
         }
-        return new EstadoServidor(mapa, jogadores, bots, capacidade, pingMs, modo, estatisticas, steamId, indicePorta);
+        return new EstadoServidor(mapa, jogadores, bots, capacidade, pingMs, modo, estatisticas, steamId);
     }
 
     private static void Avancar(int bytes, int tamanho, ref int posicao)

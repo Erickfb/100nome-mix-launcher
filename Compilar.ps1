@@ -23,7 +23,7 @@ if ([IO.Path]::GetExtension($saida) -ine '.exe' -or (Test-Path -LiteralPath $sai
 }
 $arquivoPerfil = if ($configurado) { (Get-Item -LiteralPath $Perfil).FullName } else { Join-Path $PSScriptRoot 'perfil.exemplo.json' }
 $config = Get-Content -LiteralPath $arquivoPerfil -Raw -Encoding UTF8 | ConvertFrom-Json
-$campos = @('DominioPrincipal','DominioPonte','DominioTerceiro','EnderecoLocalCadastro','PortaCadastro','SteamIdServidor',
+$campos = @('DominioPrincipal','DominioTerceiro','EnderecoLocalCadastro','PortaCadastro','SteamIdServidor',
     'CanalDiscord','PinTlsCadastro','ModuloEmissor','PastaDados','ChaveLocalPC')
 if (Compare-Object -CaseSensitive ($campos | Sort-Object) ($config.PSObject.Properties.Name | Sort-Object)) {
     throw 'Confira os nomes dos campos em perfil.exemplo.json.'
@@ -31,7 +31,7 @@ if (Compare-Object -CaseSensitive ($campos | Sort-Object) ($config.PSObject.Prop
 foreach ($campo in $campos) {
     if ($config.$campo -isnot [string] -or $config.$campo -match '[\p{C}\p{Zl}\p{Zp}]') { throw "Valor inválido em $campo." }
 }
-foreach ($hostJogo in $config.DominioPrincipal,$config.DominioPonte,$config.DominioTerceiro) {
+foreach ($hostJogo in $config.DominioPrincipal,$config.DominioTerceiro) {
     if ([Uri]::CheckHostName($hostJogo) -ne 'Dns') { throw 'Use somente o nome DNS em cada domínio.' }
 }
 if ($config.EnderecoLocalCadastro) {
@@ -61,9 +61,9 @@ if ($configurado) {
 }
 $versao = (Get-Content -Raw -LiteralPath (Join-Path $PSScriptRoot 'versao.txt')).Trim()
 if ($versao -notmatch '^\d+\.\d+\.\d+$') { throw 'A versão deve ter três números.' }
-$fontes = @('Atualizacao','AtualizacaoPacote','AutorizacaoRota','CadastroAutomatico','CanalDtls','CanalJogo','CanalUdp',
-    'CanalWebSocket','Cenarios','Central','ConsultaServidor','Convite','EntradasMix','GuiaPublico','JanelaAtivacao',
-    'JanelaConvite','Launcher','LicencaPC','MuralComunidade','NoticiasSteam','PatentePessoal','PatentesDoMix','PatentesNaCentral','PonteJogo','SinalizacaoUdp')
+$fontes = @('Atualizacao','AtualizacaoPacote','AutorizacaoRota','CadastroAutomatico',
+    'Cenarios','Central','ConsultaServidor','Convite','EntradasMix','GuiaPublico','JanelaAtivacao',
+    'JanelaConvite','Launcher','LicencaPC','MuralComunidade','NoticiasSteam','PatentePessoal','PatentesDoMix','PatentesNaCentral')
 if (-not $configurado) { $fontes += 'Previa' }
 $fontes = @($fontes | ForEach-Object { (Get-Item -LiteralPath (Join-Path $PSScriptRoot ($_ + '.cs'))).FullName })
 
@@ -84,34 +84,17 @@ try {
         $linhas += '    internal const string ' + $campo + ' = "' + $literal + '";'
     }
     [IO.File]::WriteAllLines($versaoFonte,[string[]]($linhas + '}'),[Text.UTF8Encoding]::new($true))
-    $nomeNuget = 'bouncycastle.cryptography.2.7.0.nupkg'
-    $pacote = Join-Path $env:USERPROFILE ".nuget\packages\bouncycastle.cryptography\2.7.0\$nomeNuget"
-    if (-not [IO.File]::Exists($pacote)) {
-        $pacote = Join-Path $pasta $nomeNuget
-        Invoke-WebRequest -UseBasicParsing -Uri "https://api.nuget.org/v3-flatcontainer/bouncycastle.cryptography/2.7.0/$nomeNuget" -OutFile $pacote
-    }
-    if ((Get-FileHash -LiteralPath $pacote).Hash -cne 'F091FFCCAB4D03993E660BACE277659A79DEE0972F54D7F1F4BD46D680966241') {
-        throw 'O pacote Bouncy Castle diverge do SHA-256 revisado.'
-    }
-    Add-Type -AssemblyName System.IO.Compression.FileSystem
-    $dll = Join-Path $pasta 'BouncyCastle.Cryptography.dll'
-    $licenca = Join-Path $pasta 'BouncyCastle.LICENSE.md'
-    $zip = [IO.Compression.ZipFile]::OpenRead($pacote)
-    try {
-        [IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('lib/net461/BouncyCastle.Cryptography.dll'),$dll)
-        [IO.Compression.ZipFileExtensions]::ExtractToFile($zip.GetEntry('LICENSE.md'),$licenca)
-    } finally { $zip.Dispose() }
     $temporario = Join-Path $pasta 'Mix.exe'
     $entrada = if ($configurado) { 'Convite' } else { 'Launcher' }
     $interface = Join-Path $PSScriptRoot 'Interface.xaml'
     $referencias = @('WPF\PresentationFramework','WPF\PresentationCore','WPF\WindowsBase','System.Xaml','System.Xml','System.Runtime.Serialization') |
         ForEach-Object { '/r:' + (Join-Path $framework ($_ + '.dll')) }
-    & $csc /nologo /target:winexe /platform:anycpu /codepage:65001 /optimize+ "/main:$entrada" "/out:$temporario" @referencias "/r:$dll" "/resource:$dll,BouncyCastle.Cryptography.dll" "/resource:$licenca,BouncyCastle.LICENSE.md" "/resource:$interface,interface" @fontes $versaoFonte
+    & $csc /nologo /target:winexe /platform:anycpu /codepage:65001 /optimize+ "/main:$entrada" "/out:$temporario" @referencias "/resource:$interface,interface" @fontes $versaoFonte
     if ($LASTEXITCODE -ne 0) { throw 'Falha na compilação do cliente.' }
     [IO.File]::Move($temporario,$saida)
     $saida
 } finally {
-    foreach ($arquivo in 'Projeto.g.cs','bouncycastle.cryptography.2.7.0.nupkg','BouncyCastle.Cryptography.dll','BouncyCastle.LICENSE.md','Mix.exe') {
+    foreach ($arquivo in 'Projeto.g.cs','Mix.exe') {
         [IO.File]::Delete((Join-Path $pasta $arquivo))
     }
     [IO.Directory]::Delete($pasta)
