@@ -1,0 +1,54 @@
+name: Validar o launcher no Windows
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  cliente:
+    runs-on: windows-2022
+    timeout-minutes: 10
+    defaults:
+      run:
+        shell: powershell
+    steps:
+      - name: Baixar a revisão pública
+        run: |
+          git init --quiet
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git config core.autocrlf false
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git -c credential.helper= fetch --quiet --no-tags --depth=1 "$env:GITHUB_SERVER_URL/$env:GITHUB_REPOSITORY.git" $env:GITHUB_SHA
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          git checkout --quiet --detach FETCH_HEAD
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          if ((git rev-parse HEAD) -ne $env:GITHUB_SHA) { throw 'Revisão inesperada.' }
+      - name: Compilar e conferir a demonstração
+        run: |
+          .\Testar-Exemplo.ps1
+          $compilar = (Get-Item -LiteralPath .\Compilar.ps1).FullName
+          $exe = Join-Path $env:RUNNER_TEMP 'Demo.exe'
+          Push-Location -LiteralPath $env:RUNNER_TEMP
+          try {
+            [Environment]::CurrentDirectory = $env:GITHUB_WORKSPACE
+            & $compilar -Destino '.\Demo.exe'
+            if (!(Test-Path -LiteralPath $exe)) { throw 'Destino relativo fora da pasta esperada.' }
+          } finally { Pop-Location }
+          powershell.exe -NoProfile -STA -File .\Testar-Interface.ps1 -Exe $exe -SemDesktop
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Compilar com perfil sintético e conferir a janela de ativação
+        run: |
+          $config = Get-Content -LiteralPath .\perfil.exemplo.json -Raw -Encoding UTF8 | ConvertFrom-Json
+          $numerosPublicos = [byte[]]::new(256)
+          $numerosPublicos[0] = 181
+          $numerosPublicos[255] = 73
+          $config.ModuloEmissor = [Convert]::ToBase64String($numerosPublicos)
+          $config.PinTlsCadastro = [Convert]::ToBase64String([byte[]]::new(32))
+          $arquivo = Join-Path $env:RUNNER_TEMP 'teste.json'
+          $config | ConvertTo-Json | Set-Content -LiteralPath $arquivo -Encoding UTF8
+          $exe = Join-Path $env:RUNNER_TEMP 'Comunidade.exe'
+          .\Compilar.ps1 -Perfil $arquivo -Destino $exe
+          powershell.exe -NoProfile -STA -File .\Testar-Interface.ps1 -Exe $exe -SemDesktop
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }

@@ -1,0 +1,13 @@
+{
+  "DominioPrincipal": "jogo.example.invalid",
+  "DominioPonte": "ponte.example.invalid",
+  "DominioTerceiro": "alternativa.example.invalid",
+  "EnderecoLocalCadastro": "",
+  "PortaCadastro": "443",
+  "SteamIdServidor": "1",
+  "CanalDiscord": "https://comunidade.example.invalid/",
+  "PinTlsCadastro": "",
+  "ModuloEmissor": "",
+  "PastaDados": "MixExemplo",
+  "ChaveLocalPC": "MixExemplo.Acesso.v1"
+}
