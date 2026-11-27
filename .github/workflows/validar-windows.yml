@@ -52,3 +52,23 @@ jobs:
           .\Compilar.ps1 -Perfil $arquivo -Destino $exe
           powershell.exe -NoProfile -STA -File .\Testar-Interface.ps1 -Exe $exe -SemDesktop
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Compilar o EXE distribuível
+        run: |
+          $destino = Join-Path $env:RUNNER_TEMP 'distribuicao'
+          [void][IO.Directory]::CreateDirectory($destino)
+          $exe = Join-Path $destino '100Nome Mix.exe'
+          $edicao = [long]([IO.File]::ReadAllText((Join-Path $env:GITHUB_WORKSPACE 'edicao.txt')).Trim())
+          .\Compilar.ps1 -Bootstrap .\cadastro.json -Edicao $edicao -Destino $exe
+          $assembly = [Reflection.Assembly]::ReflectionOnlyLoad([IO.File]::ReadAllBytes($exe))
+          $nomes = $assembly.GetManifestResourceNames()
+          if ('edicao-mix' -notin $nomes -or 'atualizacao-mix' -in $nomes -or 'senha-do-mix' -in $nomes) {
+            throw 'Recursos inesperados no build de distribuição.'
+          }
+          Get-FileHash -Algorithm SHA256 -LiteralPath $exe
+      - name: Guardar o EXE desta revisão
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: launcher-windows
+          path: ${{ runner.temp }}/distribuicao/100Nome Mix.exe
+          if-no-files-found: error
+          retention-days: 30

@@ -105,7 +105,11 @@ internal sealed class ComparacaoEntradas
 {
     // SteamID público anunciado pelo dedicado do mix na consulta direta A2S.
     // Se o token do servidor mudar, a rota direta informa a identidade atual.
+#if PERFIL_REMOTO
+    internal static ulong SteamIdDoMix { get { return PerfilInstancia.SteamIdServidor; } }
+#else
     internal const ulong SteamIdDoMix = PerfilInstancia.SteamIdServidor;
+#endif
     internal readonly MedicaoEntrada Direta;
     internal readonly MedicaoEntrada Terceira;
     internal MedicaoEntrada MelhorConfirmada(EntradaMix preferida)

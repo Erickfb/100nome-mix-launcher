@@ -18,42 +18,115 @@ internal sealed class AtualizacaoConfig
     [DataMember(Name = "modulo")] internal string Modulo { get; set; }
     [DataMember(Name = "expoente")] internal string Expoente { get; set; }
     [DataMember(Name = "chave")] internal string Chave { get; set; }
+    internal string Instancia { get; private set; }
+    internal bool ExePublico { get { return Chave == null; } }
 
     internal static AtualizacaoConfig Ler(Assembly assembly)
     {
-        using (Stream s = assembly.GetManifestResourceStream("atualizacao-mix"))
-            return Ler(s);
+        return LerRecursos(AtualizacaoLeitorIsolado.Recursos(assembly));
+    }
+
+    internal static AtualizacaoConfig LerRecursos(byte[][] recursos)
+    {
+        if ((recursos[0] == null) == (recursos[1] == null)) throw new InvalidDataException();
+        AtualizacaoConfig config;
+        if (recursos[0] != null)
+        {
+            using (var stream = new MemoryStream(recursos[0])) config = Ler(stream);
+        }
+        else
+        {
+            long edicao;
+            var valor = Encoding.ASCII.GetString(recursos[1]);
+            if (!Regex.IsMatch(valor, @"\A[1-9][0-9]*\z") ||
+                !long.TryParse(valor, NumberStyles.None, CultureInfo.InvariantCulture, out edicao))
+                throw new InvalidDataException();
+            config = new AtualizacaoConfig { Edicao = edicao };
+        }
+        if (recursos[2] != null) config.Instancia = Encoding.ASCII.GetString(recursos[2]);
+        if ((config.Instancia != null || config.ExePublico) &&
+            !Regex.IsMatch(config.Instancia ?? "", @"\A[0-9a-f]{64}\z")) throw new InvalidDataException();
+        return config;
+    }
+
+    internal static AtualizacaoConfig LerCanal(byte[] json, long edicao, string moduloAutenticado)
+    {
+        if (json == null || json.Length > 8192 || edicao < 1) throw new InvalidDataException();
+        using (var stream = new MemoryStream(json))
+        {
+            var c = (AtualizacaoConfig)new DataContractJsonSerializer(typeof(AtualizacaoConfig)).ReadObject(stream);
+            if (c == null || c.Edicao != 0 || c.Modulo != moduloAutenticado) throw new CryptographicException();
+            c.Edicao = edicao;
+            c.Validar();
+            var uri = new Uri(c.Origem);
+            bool localDeTeste = false;
+#if TESTE_ATUALIZACAO
+            localDeTeste = uri.Scheme == "http" && uri.IsLoopback;
+#endif
+            if (!localDeTeste && (uri.Host != "raw.githubusercontent.com" || Repositorio(uri) == null))
+                throw new InvalidDataException();
+            return c;
+        }
     }
 
     internal static AtualizacaoConfig Ler(Stream s)
     {
         if (s == null || s.Length > 8192) throw new InvalidDataException();
         var c = (AtualizacaoConfig)new DataContractJsonSerializer(typeof(AtualizacaoConfig)).ReadObject(s);
-        if (c.Edicao < 1 || Convert.FromBase64String(c.Chave).Length != 32 ||
-            Convert.FromBase64String(c.Modulo).Length != 384 || c.Expoente != "AQAB")
+        if (c == null) throw new InvalidDataException();
+        c.Validar();
+        return c;
+    }
+
+    private void Validar()
+    {
+        if (Edicao < 1 || Convert.FromBase64String(Chave).Length != 32 ||
+            Convert.FromBase64String(Modulo).Length != 384 || Expoente != "AQAB")
             throw new InvalidDataException();
-        Uri u = new Uri(c.Origem);
+        Uri u = new Uri(Origem);
         if (!u.IsAbsoluteUri || !string.IsNullOrEmpty(u.UserInfo) || !string.IsNullOrEmpty(u.Query) ||
             !string.IsNullOrEmpty(u.Fragment) || !(u.Scheme == "https" || (u.Scheme == "http" && u.IsLoopback)))
             throw new InvalidDataException();
-        return c;
     }
 
     internal bool MesmoCanal(AtualizacaoConfig outro)
     {
-        return Modulo == outro.Modulo && Expoente == outro.Expoente && Chave == outro.Chave;
+        return !ExePublico && !outro.ExePublico && Modulo == outro.Modulo &&
+            Expoente == outro.Expoente && Chave == outro.Chave;
+    }
+
+    internal static string Repositorio(Uri feed)
+    {
+        if (feed.Scheme != "https" || !feed.IsDefaultPort) return null;
+        const string repositorio = @"\A/([a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+)";
+        string caminho;
+        if (feed.Host == "raw.githubusercontent.com") caminho = @"/refs/heads/canal-publico/manifesto\.txt\z";
+        else if (feed.Host == "github.com") caminho = @"/releases/latest/download/manifesto\.txt\z";
+        else return null;
+        var match = Regex.Match(feed.AbsolutePath, repositorio + caminho);
+        return match.Success ? match.Groups[1].Value : null;
     }
 }
 
 public sealed class AtualizacaoLeitorIsolado : MarshalByRefObject
 {
-    public byte[] Ler(string exe)
+    public byte[][] LerRecursos(string exe)
     {
-        var assembly = Assembly.ReflectionOnlyLoad(File.ReadAllBytes(exe));
-        using (Stream resource = assembly.GetManifestResourceStream("atualizacao-mix"))
+        return Recursos(Assembly.ReflectionOnlyLoad(File.ReadAllBytes(exe)));
+    }
+
+    internal static byte[][] Recursos(Assembly assembly)
+    {
+        return new[] { Recurso(assembly, "atualizacao-mix"), Recurso(assembly, "edicao-mix"), Recurso(assembly, "instancia-mix") };
+    }
+
+    private static byte[] Recurso(Assembly assembly, string nome)
+    {
+        using (Stream resource = assembly.GetManifestResourceStream(nome))
         using (var copy = new MemoryStream())
         {
-            if (resource == null || resource.Length > 8192) throw new InvalidDataException();
+            if (resource == null) return null;
+            if (resource.Length > 8192) throw new InvalidDataException();
             resource.CopyTo(copy);
             return copy.ToArray();
         }
@@ -104,11 +177,11 @@ internal sealed class AtualizacaoPacote
     {
         var feed = new Uri(config.Origem);
         string nome = "pacote-" + HashPacote + ".bin";
-        if (feed.Host.Equals("github.com", StringComparison.OrdinalIgnoreCase))
+        if (feed.Host == "github.com" || feed.Host == "raw.githubusercontent.com")
         {
-            var match = Regex.Match(feed.AbsolutePath, "\\A/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/releases/latest/download/manifesto\\.txt\\z");
-            if (!match.Success) throw new InvalidDataException();
-            return new Uri("https://github.com/" + match.Groups[1].Value + "/releases/download/edicao-" +
+            var repo = AtualizacaoConfig.Repositorio(feed);
+            if (repo == null) throw new InvalidDataException();
+            return new Uri("https://github.com/" + repo + "/releases/download/edicao-" +
                 Edicao.ToString(CultureInfo.InvariantCulture) + "/" + nome);
         }
         return new Uri(feed, nome);

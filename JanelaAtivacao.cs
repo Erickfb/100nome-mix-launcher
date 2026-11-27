@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -17,12 +18,20 @@ internal sealed class JanelaAtivacao : Window
     private readonly Button verificar = Botao("Verificar cadastro", "#7842BC");
     private readonly Button importar = Botao("Importar autorização", "#35313D");
     private bool verificouAtualizacao;
+#if PERFIL_REMOTO || PERFIL_TRANSICAO
+    private bool consentiuVinculo;
+#endif
 
     private static Brush Cor(string valor) { return (Brush)new BrushConverter().ConvertFromString(valor); }
 
-    internal JanelaAtivacao(string codigoPC)
+    internal JanelaAtivacao(string codigoPC) : this(codigoPC, false) { }
+
+    internal JanelaAtivacao(string codigoPC, bool consentiu)
     {
         codigo = codigoPC;
+#if PERFIL_REMOTO || PERFIL_TRANSICAO
+        consentiuVinculo = consentiu;
+#endif
         Title = "Acesso ao 100Nome Mix";
         Width = Math.Min(510, SystemParameters.WorkArea.Width);
         SizeToContent = SizeToContent.Height;
@@ -75,7 +84,37 @@ internal sealed class JanelaAtivacao : Window
         {
             var estado = await CadastroAutomatico.ConferirAcesso(codigo, fechar.Token);
             if (fechar.IsCancellationRequested) return;
-            if (estado == CadastroAutomatico.Resultado.Autorizado) { DialogResult = true; return; }
+            if (estado == CadastroAutomatico.Resultado.Autorizado)
+            {
+#if PERFIL_REMOTO || PERFIL_TRANSICAO
+                retorno.Text = "Carregando as entradas, os comandos e as artes do grupo…";
+                try
+                {
+                    bool pronto = await Task.Run(() => PerfilRemoto.Carregar(consentiuVinculo, fechar.Token), fechar.Token);
+                    if (fechar.IsCancellationRequested) return;
+                    if (!pronto)
+                    {
+                        consentiuVinculo = PerfilRemoto.PedirConsentimento(this, false);
+                        if (consentiuVinculo)
+                            await Task.Run(() => PerfilRemoto.Carregar(true, fechar.Token), fechar.Token);
+#if PERFIL_REMOTO
+                        else { retorno.Text = "Para abrir a central, clique em Verificar cadastro e confirme o vínculo do PC."; return; }
+#endif
+                    }
+                }
+                catch (OperationCanceledException) { return; }
+                catch (Exception)
+                {
+#if PERFIL_REMOTO
+                    retorno.Text = "O perfil do mix não ficou disponível. Clique em Verificar cadastro para tentar novamente.";
+                    return;
+#endif
+                    // Na transição, as entradas e as artes desta versão ainda vêm do EXE.
+                }
+#endif
+                if (!fechar.IsCancellationRequested) DialogResult = true;
+                return;
+            }
             switch (estado)
             {
                 case CadastroAutomatico.Resultado.Revogado:

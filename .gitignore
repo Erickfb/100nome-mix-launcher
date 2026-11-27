@@ -2,6 +2,7 @@
 *.dll
 *.json
 !perfil.exemplo.json
+!/cadastro.json
 *.100nome
 *.pfx
 *.p12

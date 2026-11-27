@@ -12,7 +12,11 @@ using System.Windows;
 
 internal static class Convite
 {
+#if PERFIL_REMOTO
+    internal static string Dominio { get { return PerfilInstancia.DominioPrincipal; } }
+#else
     internal const string Dominio = PerfilInstancia.DominioPrincipal;
+#endif
     internal const int Porta = 27015;
 
     [STAThread]
@@ -23,13 +27,41 @@ internal static class Convite
             "Launcher de exemplo", MessageBoxButton.OK, MessageBoxImage.Information);
         return 0;
 #else
+#if PERFIL_REMOTO
+        while (true)
+        {
+            try { PerfilRemoto.PrepararInicio(); break; }
+            catch (Exception)
+            {
+                if (Environment.GetCommandLineArgs().Length > 1) return 1;
+                if (MessageBox.Show("A central de cadastro não respondeu com um perfil válido. Confira a conexão e tente novamente.",
+                    "Acesso ao 100Nome Mix", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK) return 1;
+            }
+        }
+#endif
         int codigo;
         if (Atualizacao.ExecutarAuxiliar(out codigo)) return codigo;
         var aplicativo = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         try
         {
+            bool consentiu = false;
+#if PERFIL_REMOTO
+            var conhecido = LicencaPC.CodigoDaLicencaSalva();
+            if (conhecido == null)
+            {
+                consentiu = PerfilRemoto.PedirConsentimento(null, true);
+                if (!consentiu) return 0;
+            }
+#endif
             var codigoPC = LicencaPC.Codigo();
-            if (new JanelaAtivacao(codigoPC).ShowDialog() != true) return 0;
+#if PERFIL_REMOTO
+            if (conhecido != null && conhecido != codigoPC)
+            {
+                consentiu = PerfilRemoto.PedirConsentimento(null, true);
+                if (!consentiu) return 0;
+            }
+#endif
+            if (new JanelaAtivacao(codigoPC, consentiu).ShowDialog() != true) return 0;
         }
         catch (Exception)
         {

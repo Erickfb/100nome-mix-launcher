@@ -59,7 +59,11 @@ internal static class CadastroAutomatico
     {
         var destinos = new List<string>();
         try { if (NaRedeLocal()) destinos.Add(PerfilInstancia.EnderecoLocalCadastro); } catch (NetworkInformationException) { }
+#if PERFIL_REMOTO
+        destinos.Add(PerfilInstancia.HostCadastro);
+#else
         destinos.Add(Convite.Dominio);
+#endif
         return destinos;
     }
 

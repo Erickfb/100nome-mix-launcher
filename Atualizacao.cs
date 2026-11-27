@@ -17,9 +17,35 @@ internal static class Atualizacao
     private static readonly object Guarda = new object();
     private static EventWaitHandle confirmacao;
     private static CancellationToken tokenPendente;
+    private static volatile AtualizacaoConfig canalDoPerfil;
 
     internal static bool GerenciadaPelaStore { get; private set; }
-    internal static readonly bool TemCanal = typeof(Atualizacao).Assembly.GetManifestResourceInfo("atualizacao-mix") != null;
+    internal static bool TemCanal { get { return canalDoPerfil != null || TemLegado; } }
+    private static readonly bool TemLegado = typeof(Atualizacao).Assembly.GetManifestResourceInfo("atualizacao-mix") != null;
+
+    internal static void ConfigurarCanal(byte[] json)
+    {
+#if PERFIL_REMOTO || PERFIL_TRANSICAO
+        var local = AtualizacaoConfig.Ler(typeof(Atualizacao).Assembly);
+        var canal = AtualizacaoConfig.LerCanal(json, local.Edicao, PerfilRemoto.ModuloAtualizador());
+        if (local.Instancia == null || (!local.ExePublico && local.Chave == canal.Chave))
+            throw new CryptographicException();
+        canalDoPerfil = canal;
+#else
+        throw new InvalidOperationException();
+#endif
+    }
+
+    internal static Uri NotasDaVersao
+    {
+        get {
+            if (GerenciadaPelaStore || !TemCanal) return null;
+            var config = canalDoPerfil ?? AtualizacaoConfig.Ler(typeof(Atualizacao).Assembly);
+            var repo = AtualizacaoConfig.Repositorio(new Uri(config.Origem));
+            return repo == null ? null : new Uri("https://github.com/" + repo +
+                "/releases/tag/edicao-" + config.Edicao.ToString(CultureInfo.InvariantCulture));
+        }
+    }
 
     [DllImport("kernel32.dll", ExactSpelling = true)]
     private static extern int GetCurrentPackageFullName(ref uint caracteres, IntPtr nome);
@@ -69,7 +95,10 @@ internal static class Atualizacao
     {
         string[] args = Environment.GetCommandLineArgs();
         if (args.Length >= 2 && (args[1] == Aplicado || args[1] == Restaurado)) return false;
-        var cfg = AtualizacaoConfig.Ler(typeof(Atualizacao).Assembly);
+        var anterior = AtualizacaoConfig.Ler(typeof(Atualizacao).Assembly);
+        var remoto = canalDoPerfil;
+        var cfg = remoto ?? anterior;
+        if (cfg.ExePublico) return false;
         Directory.CreateDirectory(Cache);
         LimparAntigos();
         byte[] manifesto;
@@ -100,7 +129,8 @@ internal static class Atualizacao
             pacote.Abrir(cifra, candidato, cfg);
             File.Delete(cifra);
             AtualizacaoConfig nova = LerConfigArquivo(candidato);
-            if (nova.Edicao != pacote.Edicao || !cfg.MesmoCanal(nova)) throw new CryptographicException();
+            ConferirTroca(anterior, nova, pacote.Edicao, remoto != null);
+            ConferirVersoes(typeof(Atualizacao).Assembly.Location, candidato, nova.ExePublico);
             File.WriteAllBytes(Arquivo(dir, "manifesto.txt"), manifesto);
             using (var pronto = Criar(id, "pronto"))
             {
@@ -188,9 +218,26 @@ internal static class Atualizacao
         {
             var leitor = (AtualizacaoLeitorIsolado)dominio.CreateInstanceFromAndUnwrap(
                 proprio.Location, typeof(AtualizacaoLeitorIsolado).FullName);
-            using (var bytes = new MemoryStream(leitor.Ler(exe))) return AtualizacaoConfig.Ler(bytes);
+            return AtualizacaoConfig.LerRecursos(leitor.LerRecursos(exe));
         }
         finally { AppDomain.Unload(dominio); }
+    }
+
+    private static void ConferirTroca(AtualizacaoConfig anterior, AtualizacaoConfig nova, long edicao, bool perfil)
+    {
+        if (nova.Edicao != edicao || nova.Edicao <= anterior.Edicao) throw new CryptographicException();
+        if (perfil ? !nova.ExePublico || anterior.Instancia == null || anterior.Instancia != nova.Instancia :
+            !anterior.MesmoCanal(nova)) throw new CryptographicException();
+    }
+
+    private static void ConferirVersoes(string anterior, string novo, bool publico)
+    {
+        if (!publico) return;
+        var versao = AssemblyName.GetAssemblyName(novo).Version;
+        var metadados = FileVersionInfo.GetVersionInfo(novo);
+        if (versao.Revision != 0 || metadados.FileVersion != versao.ToString() ||
+            metadados.ProductVersion != versao.ToString(3) || versao <= AssemblyName.GetAssemblyName(anterior).Version)
+            throw new InvalidDataException();
     }
 
     private static Process Iniciar(string exe, string argumentos)
@@ -211,9 +258,15 @@ internal static class Atualizacao
             string destino = pai.MainModule.FileName;
             var anterior = LerConfigArquivo(destino);
             var atual = AtualizacaoConfig.Ler(typeof(Atualizacao).Assembly);
-            var m = AtualizacaoPacote.Validar(File.ReadAllBytes(Arquivo(dir, "manifesto.txt")), anterior);
-            if (!anterior.MesmoCanal(atual) || m.Edicao != atual.Edicao || atual.Edicao <= anterior.Edicao ||
-                AtualizacaoPacote.HashArquivo(candidato) != m.HashExe) throw new CryptographicException();
+            var verificador = anterior;
+#if PERFIL_REMOTO
+            // O helper obtém sua raiz de confiança da central com pin TLS, independente dos arquivos da atualização.
+            verificador = new AtualizacaoConfig { Modulo = PerfilRemoto.ModuloAtualizador(), Expoente = "AQAB" };
+#endif
+            var m = AtualizacaoPacote.Validar(File.ReadAllBytes(Arquivo(dir, "manifesto.txt")), verificador);
+            ConferirTroca(anterior, atual, m.Edicao, atual.ExePublico);
+            ConferirVersoes(destino, candidato, atual.ExePublico);
+            if (AtualizacaoPacote.HashArquivo(candidato) != m.HashExe) throw new CryptographicException();
             string hashAntigo = AtualizacaoPacote.HashArquivo(destino);
             string chaveDestino;
             using (var bytes = new MemoryStream(Encoding.UTF8.GetBytes(Path.GetFullPath(destino).ToUpperInvariant())))
@@ -227,7 +280,12 @@ internal static class Atualizacao
                 if (!exclusiva) return;
                 try
                 {
-                    if (File.Exists(reserva) && !LerConfigArquivo(reserva).MesmoCanal(atual)) throw new IOException();
+                    if (File.Exists(reserva))
+                    {
+                        var backup = LerConfigArquivo(reserva);
+                        if (!backup.MesmoCanal(anterior) && (anterior.Instancia == null || backup.Instancia != anterior.Instancia))
+                            throw new IOException();
+                    }
                     File.Copy(candidato, novo, false);
                     pronto.Set();
                     var prazo = Stopwatch.StartNew();

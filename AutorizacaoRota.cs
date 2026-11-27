@@ -25,6 +25,16 @@ internal static class AutorizacaoRota
 
     internal static string ObterSenhaDoJogo(bool consentiu, CancellationToken token)
     {
+        return LerSenha(ConsultarPC(false, consentiu, token));
+    }
+
+    internal static byte[] ObterPerfil(bool consentiu, CancellationToken token)
+    {
+        return ConsultarPC(true, consentiu, token);
+    }
+
+    private static byte[] ConsultarPC(bool perfil, bool consentiu, CancellationToken token)
+    {
         using (var rsa = LicencaPC.AbrirChave())
         {
             string codigo = LicencaPC.CalcularCodigo(LicencaPC.GuidDaInstalacao(), rsa);
@@ -34,7 +44,7 @@ internal static class AutorizacaoRota
                 token.ThrowIfCancellationRequested();
                 try
                 {
-                    return Provar(codigo, rsa, consentiu, LicencaPC.GuidDaInstalacao,
+                    return ProvarUso(perfil, codigo, rsa, consentiu, LicencaPC.GuidDaInstalacao,
                         (caminho, json) => Post(host, caminho, json, licenca, token));
                 }
                 catch (WebException erro)
@@ -52,11 +62,19 @@ internal static class AutorizacaoRota
     internal static string Provar(string codigo, RSACryptoServiceProvider rsa,
         bool consentiu, Func<string> lerInstalacao, Func<string,string,Tuple<int,byte[]>> enviar)
     {
+        return LerSenha(ProvarUso(false, codigo, rsa, consentiu, lerInstalacao, enviar));
+    }
+
+    internal static byte[] ProvarUso(bool perfil, string codigo, RSACryptoServiceProvider rsa,
+        bool consentiu, Func<string> lerInstalacao, Func<string,string,Tuple<int,byte[]>> enviar)
+    {
         var publica = rsa.ExportParameters(false);
         if (publica.Modulus.Length != 256 || Convert.ToBase64String(publica.Exponent) != "AQAB")
             throw new CryptographicException("Chave do PC incompatível.");
-        string pedido = "{\"rota\":\"convite\",\"finalidade\":\"jogar\",\"modulo\":\"" + Convert.ToBase64String(publica.Modulus) + "\"}";
-        var primeira = enviar("/v3/rota/desafio", pedido);
+        string rota = perfil ? "perfil" : "convite", finalidade = perfil ? "abrir" : "jogar";
+        string pedido = "{\"rota\":\"" + rota + "\",\"finalidade\":\"" + finalidade +
+            "\",\"modulo\":\"" + Convert.ToBase64String(publica.Modulus) + "\"}";
+        var primeira = enviar(perfil ? "/v4/perfil/desafio" : "/v3/rota/desafio", pedido);
         if (primeira.Item1 == 403) throw new UnauthorizedAccessException();
         if (primeira.Item1 != 200 && primeira.Item1 != 409)
             throw new IOException("A central recusou o desafio de acesso.");
@@ -64,7 +82,7 @@ internal static class AutorizacaoRota
         if (!Regex.IsMatch(desafio.Valor ?? "", @"\A[A-Za-z0-9_-]{43}\z") || desafio.Vinculo != (primeira.Item1 == 409))
             throw new InvalidDataException("Desafio de acesso inválido.");
         if (desafio.Vinculo && !consentiu) return null;
-        string texto = "100NOME-PC-PROVA-1\n" + codigo + "\nconvite\njogar\n" + desafio.Valor + "\n";
+        string texto = "100NOME-PC-PROVA-1\n" + codigo + "\n" + rota + "\n" + finalidade + "\n" + desafio.Valor + "\n";
         string assinatura = Convert.ToBase64String(rsa.SignData(Encoding.UTF8.GetBytes(texto), "SHA256"));
         string prova = "{\"desafio\":\"" + desafio.Valor + "\",\"assinatura\":\"" + assinatura + "\"";
         if (desafio.Vinculo)
@@ -74,10 +92,16 @@ internal static class AutorizacaoRota
                 throw new InvalidDataException("Identidade da instalação inválida.");
             prova += ",\"instalacao\":\"" + instalacao + "\"";
         }
-        var segunda = enviar("/v3/convite", prova + "}");
+        var segunda = enviar(perfil ? "/v4/perfil" : "/v3/convite", prova + "}");
         if (segunda.Item1 == 403) throw new UnauthorizedAccessException();
         if (segunda.Item1 != 200) throw new IOException("A central recusou a autorização.");
-        string senha = Ler<RespostaConvite>(segunda.Item2).Senha;
+        return segunda.Item2;
+    }
+
+    private static string LerSenha(byte[] dados)
+    {
+        if (dados == null) return null;
+        string senha = Ler<RespostaConvite>(dados).Senha;
         if (!Convite.SenhaValida(senha)) throw new InvalidDataException("Senha do convite inválida.");
         return senha;
     }
@@ -121,8 +145,13 @@ internal static class AutorizacaoRota
             using (resposta)
             using (var leitor = new BinaryReader(resposta.GetResponseStream()))
             {
-                var bytes = leitor.ReadBytes(4097);
-                if (bytes.Length > 4096) throw new InvalidDataException("Resposta de autorização muito longa.");
+                bool pacote = caminho == "/v4/perfil" && resposta.StatusCode == HttpStatusCode.OK;
+                if (pacote && !string.Equals(resposta.ContentType, "application/zip", StringComparison.OrdinalIgnoreCase))
+                    throw new InvalidDataException("Formato de perfil inesperado.");
+                int limite = pacote ? 16 * 1024 * 1024 : 4096;
+                if (resposta.ContentLength > limite) throw new InvalidDataException("Resposta de autorização muito longa.");
+                var bytes = leitor.ReadBytes(limite + 1);
+                if (bytes.Length > limite) throw new InvalidDataException("Resposta de autorização muito longa.");
                 return Tuple.Create((int)resposta.StatusCode, bytes);
             }
         }

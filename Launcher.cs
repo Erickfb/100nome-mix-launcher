@@ -27,7 +27,11 @@ internal sealed partial class Launcher
     private string legendaEntrada = "Escolha uma entrada na aba Servidor.";
     private SondagemEntradas sondagem;
     private SondagemEntradas medicaoParaConectar;
+#if PERFIL_REMOTO
+    private readonly string[] recursos = PerfilRemoto.NomesDasArtes();
+#else
     private readonly string[] recursos = typeof(Launcher).Assembly.GetManifestResourceNames();
+#endif
     private readonly CancellationTokenSource fecharAtualizador = new CancellationTokenSource();
     private string imagemAtual = Cenarios.Padrao;
     private int grupo;
@@ -192,7 +196,11 @@ internal sealed partial class Launcher
 
     private static BitmapSource Imagem(string nome)
     {
+#if PERFIL_REMOTO
+        using (Stream arquivo = PerfilRemoto.AbrirArte(nome))
+#else
         using (Stream arquivo = typeof(Launcher).Assembly.GetManifestResourceStream(nome))
+#endif
         {
             if (arquivo == null) return null;
             var imagem = BitmapFrame.Create(arquivo, BitmapCreateOptions.PreservePixelFormat, BitmapCacheOption.OnLoad);

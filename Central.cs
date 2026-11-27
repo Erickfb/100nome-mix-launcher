@@ -28,19 +28,13 @@ internal sealed partial class Launcher
         Controle<Image>("ArteNoticia").Source = Imagem(Cenarios.Recurso("de_ancient", recursos));
         Controle<TextBlock>("VersaoNoticia").Text = "MIX 100NOME  ·  VERSÃO " + Atualizacao.Versao;
         Controle<ItemsControl>("MuralMix").ItemsSource = MuralDaComunidade.Noticias;
-        long edicao = Atualizacao.Edicao;
-        if (!Atualizacao.GerenciadaPelaStore && edicao > 0)
+        var url = Atualizacao.NotasDaVersao;
+        if (url != null)
         {
-            var feed = new Uri(AtualizacaoConfig.Ler(typeof(Atualizacao).Assembly).Origem);
-            if (feed.Scheme == Uri.UriSchemeHttps && feed.IsDefaultPort && feed.Host == "github.com" &&
-                feed.AbsolutePath.EndsWith("/releases/latest/download/manifesto.txt", StringComparison.Ordinal))
-            {
-                var notas = Controle<Button>("AbrirNotasVersao");
-                var url = new Uri(feed, "../../tag/edicao-" + edicao.ToString(CultureInfo.InvariantCulture));
-                notas.ToolTip = url.AbsoluteUri;
-                notas.Click += delegate { AbrirNoNavegador(url); };
-                notas.Visibility = Visibility.Visible;
-            }
+            var notas = Controle<Button>("AbrirNotasVersao");
+            notas.ToolTip = url.AbsoluteUri;
+            notas.Click += delegate { AbrirNoNavegador(url); };
+            notas.Visibility = Visibility.Visible;
         }
         Controle<Button>("AbrirDiscord").Click += delegate { AbrirNoNavegador(CanalDiscord); };
         Controle<Button>("AtualizarNoticias").Click += delegate { CarregarNoticias(true); };

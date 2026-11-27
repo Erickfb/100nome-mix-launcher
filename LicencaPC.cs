@@ -85,6 +85,27 @@ internal static class LicencaPC
 
     private static string Arquivo { get { return Path.Combine(Pasta, "licenca.100nome"); } }
 
+#if PERFIL_REMOTO
+    internal static string CodigoDaLicencaSalva()
+    {
+        try
+        {
+            byte[] dados = LerArquivo(Arquivo);
+            string[] linhas = new UTF8Encoding(false, true).GetString(dados).Split('\n');
+            if (linhas.Length != 4) return null;
+            Validar(dados, linhas[1]);
+            return linhas[1];
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        catch (InvalidDataException) { }
+        catch (CryptographicException) { }
+        catch (FormatException) { }
+        catch (DecoderFallbackException) { }
+        return null;
+    }
+#endif
+
     internal static bool Autorizado(string codigo)
     {
         try { Validar(LerArquivo(Arquivo), codigo); return true; }
