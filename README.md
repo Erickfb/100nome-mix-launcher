@@ -53,6 +53,8 @@ Para remover o programa, feche a janela e exclua o EXE e a cópia de recuperaç�
 
 ## Code signing policy
 
+O projeto está preparando a candidatura à assinatura gratuita pela [SignPath.io](https://about.signpath.io/), com certificado da [SignPath Foundation](https://signpath.org/). As versões 1.22.0 e 1.22.1 são distribuídas sem assinatura de editor do Windows.
+
 O mantenedor do repositório revisa as fontes e o workflow de compilação, confere o hash do artefato gerado pelo GitHub e autoriza a distribuição. Cada release identifica a versão e o SHA-256 do EXE. Enquanto o projeto aguarda uma assinatura de editor para Windows, o status do EXE é informado nas notas da versão. O manifesto assinado do auto-update é verificado pelo launcher. [Workflow de compilação](.github/workflows/validar-windows.yml) · [Mantenedor](https://github.com/Erickfb)
 
 ## Licenças

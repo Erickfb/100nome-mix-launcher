@@ -15,6 +15,14 @@ using Microsoft.Win32;
 
 internal static class CadastroAutomatico
 {
+    static CadastroAutomatico()
+    {
+        // O executável pode iniciar com o padrão antigo do .NET Framework.
+        // A primeira consulta do perfil também precisa negociar TLS moderno.
+        if (ServicePointManager.SecurityProtocol != SecurityProtocolType.SystemDefault)
+            ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
+    }
+
     internal static Uri Endereco(string host, string caminho)
     {
         return new UriBuilder(Uri.UriSchemeHttps, host, PerfilInstancia.PortaCadastro, caminho).Uri;
@@ -124,8 +132,6 @@ internal static class CadastroAutomatico
     internal static Task<Resultado> ConferirAcesso(string codigo, CancellationToken token)
     {
         return Task.Run(() => {
-            if (ServicePointManager.SecurityProtocol != SecurityProtocolType.SystemDefault)
-                ServicePointManager.SecurityProtocol = SecurityProtocolType.Tls12;
             var destinos = Destinos();
             if (LicencaPC.Autorizado(codigo))
             {
